@@ -1,8 +1,8 @@
 'use client';
 
-import React from 'react';
+import React, { useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { CupIngredient } from '@/types/acai';
+import type { CupIngredient } from '@/types/acai';
 
 interface AcaiCupProps {
   ingredients: CupIngredient[];
@@ -10,324 +10,355 @@ interface AcaiCupProps {
   className?: string;
 }
 
-// Posicionamento dos ingredientes dentro do copo
-// Simula o empilhamento natural
-function getIngredientPosition(index: number, total: number) {
-  const cupHeight = 280; // altura interna do copo
-  const cupWidth = 200; // largura interna do copo
-  
-  // Distribui os ingredientes em camadas de baixo para cima
-  const layerHeight = cupHeight / Math.max(total, 1);
-  const baseY = cupHeight - (index + 1) * layerHeight + layerHeight / 2;
-  
-  // Posição X aleatória mas dentro do copo
-  const xOffset = (Math.sin(index * 2.5) * 0.3 + Math.cos(index * 1.7) * 0.2) * (cupWidth * 0.35);
-  
-  // Rotação aleatória entre -15 e 15 graus
-  const rotate = (Math.sin(index * 3.14) * 15 + Math.cos(index * 2.71) * 10);
-  
-  // Escala baseada na "profundidade" (itens de trás menores)
-  const scale = 0.7 + (index / Math.max(total, 1)) * 0.3;
-  
-  return {
-    x: xOffset,
-    y: -baseY, // Negativo porque o eixo Y do CSS cresce para baixo
-    rotate,
-    scale,
-    zIndex: total - index,
-  };
+const ACAI_GRADIENT = 'linear-gradient(to top, #2e0854 0%, #3b0a5e 45%, #4a1268 75%, #5b1a7a 100%)';
+const CUP_CLIP = 'polygon(2% 0%, 98% 0%, 86% 100%, 14% 100%)';
+const CUP_INNER_CLIP = 'polygon(4% 0%, 96% 0%, 85% 100%, 15% 100%)';
+
+function hashString(s: string): number {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) {
+    h = (h * 31 + s.charCodeAt(i)) | 0;
+  }
+  return Math.abs(h);
 }
 
-function IngredientItem({ 
-  ingredient, 
-  index, 
-  total,
-  isNew 
-}: { 
-  ingredient: CupIngredient; 
-  index: number; 
-  total: number;
-  isNew: boolean;
+function rotationFor(id: string, preset?: number): number {
+  if (typeof preset === 'number' && Number.isFinite(preset)) {
+    return Math.max(-15, Math.min(15, preset));
+  }
+  const h = hashString(id);
+  return (h % 31) - 15;
+}
+
+function getFillPercent(size: string | undefined, itemCount: number): number {
+  if (!size && itemCount === 0) return 0;
+  let base = 42;
+  const s = (size ?? '').toLowerCase();
+  if (s.includes('350')) base = 52;
+  else if (s.includes('500')) base = 62;
+  else if (s.includes('700')) base = 72;
+  else if (s.includes('1 litro') || s.includes('1000') || s.includes('litro')) base = 82;
+  else if (size) base = 58;
+  const fill = base + Math.min(itemCount, 10) * 2.2;
+  return Math.max(0, Math.min(90, fill));
+}
+
+function getFallbackEmoji(ing: CupIngredient): string {
+  const n = `${ing.id} ${ing.name} ${ing.category}`.toLowerCase();
+  if (n.includes('morango') || n.includes('strawberry')) return '🍓';
+  if (n.includes('banana')) return '🍌';
+  if (n.includes('kiwi')) return '🥝';
+  if (n.includes('manga') || n.includes('mango')) return '🥭';
+  if (n.includes('abacaxi') || n.includes('pineapple')) return '🍍';
+  if (n.includes('uva') || n.includes('grape')) return '🍇';
+  if (n.includes('nutella') || n.includes('avelã') || n.includes('avela')) return '🍫';
+  if (n.includes('leite condensado') || n.includes('condensado')) return '🥛';
+  if (n.includes('amendoim') || n.includes('peanut') || n.includes('paçoca') || n.includes('pacoca')) return '🥜';
+  if (n.includes('granola') || n.includes('aveia') || n.includes('chia')) return '🌾';
+  if (n.includes('coco')) return '🥥';
+  if (n.includes('m&m') || n.includes('confeito') || n.includes('granulado')) return '🍬';
+  if (n.includes('mel') || n.includes('honey')) return '🍯';
+  if (n.includes('whey') || n.includes('protein')) return '💪';
+  if (n.includes('pitaya') || n.includes('dragon')) return '🐉';
+  if (n.includes('leite em pó') || n.includes('leite-em-po') || n.includes('leite')) return '☁️';
+  return '🫐';
+}
+
+interface VisualItem extends CupIngredient {
+  visualKey: string;
+  visualIndex: number;
+}
+
+function ToppingImage({ item }: { item: CupIngredient }) {
+  const [failed, setFailed] = useState(false);
+  const emoji = useMemo(() => getFallbackEmoji(item), [item]);
+
+  if (failed) {
+    return (
+      <div
+        aria-label={item.name}
+        className="flex items-center justify-center rounded-full"
+        style={{
+          width: 46,
+          height: 46,
+          fontSize: 28,
+          lineHeight: 1,
+          background: 'radial-gradient(circle at 30% 25%, rgba(255,255,255,0.35), rgba(255,255,255,0.06) 55%, rgba(0,0,0,0.35))',
+          boxShadow: '0 6px 14px rgba(0,0,0,0.45), inset 0 2px 4px rgba(255,255,255,0.25)',
+          filter: 'saturate(1.15)',
+        }}
+      >
+        <span aria-hidden="true">{emoji}</span>
+      </div>
+    );
+  }
+
+  return (
+    <img
+      src={item.image}
+      alt={item.name}
+      loading="lazy"
+      draggable={false}
+      onError={() => setFailed(true)}
+      style={{
+        width: 46,
+        height: 46,
+        objectFit: 'cover',
+        borderRadius: '9999px',
+        border: '2px solid rgba(255,255,255,0.35)',
+        boxShadow: '0 8px 16px rgba(0,0,0,0.5), inset 0 2px 5px rgba(255,255,255,0.35)',
+        filter: 'saturate(1.2) contrast(1.05)',
+        background: '#1c0b2e',
+      }}
+    />
+  );
+}
+
+function ToppingItem({
+  item,
+  leftPct,
+  topPx,
+  rotate,
+}: {
+  item: VisualItem;
+  leftPct: number;
+  topPx: number;
+  rotate: number;
 }) {
-  const position = getIngredientPosition(index, total);
-  
-  // Para ingredientes novos, animar a queda
-  const initialY = isNew ? -150 : position.y;
-  const initialRotation = isNew ? (Math.random() * 30 - 15) : position.rotate;
-  const initialScale = isNew ? 0.3 : position.scale;
-  const initialOpacity = isNew ? 0 : 1;
-  
   return (
     <motion.div
-      key={`${ingredient.id}-${ingredient.quantity}`}
-      initial={{
-        y: initialY,
-        rotate: initialRotation,
-        scale: initialScale,
-        opacity: initialOpacity,
-      }}
-      animate={{
-        y: position.y,
-        rotate: position.rotate,
-        scale: position.scale,
-        opacity: 1,
-      }}
-      transition={{
-        type: 'spring',
-        stiffness: 260,
-        damping: 20,
-        mass: 0.8,
-        delay: isNew ? index * 0.05 : 0,
-      }}
+      key={item.visualKey}
+      initial={{ y: -120, opacity: 0, scale: 0.55, rotate: rotate * 2 }}
+      animate={{ y: 0, opacity: 1, scale: 1, rotate }}
+      exit={{ opacity: 0, scale: 0.4, transition: { duration: 0.18 } }}
+      transition={{ type: 'spring', stiffness: 320, damping: 17, mass: 0.9 }}
       style={{
         position: 'absolute',
-        bottom: '60px',
-        left: '50%',
-        transformOrigin: 'center center',
-        zIndex: position.zIndex,
+        left: `${leftPct}%`,
+        top: topPx,
+        marginLeft: -23,
+        zIndex: 20 + item.visualIndex,
         pointerEvents: 'none',
-        filter: 'drop-shadow(0 4px 8px rgba(0,0,0,0.3))',
+        filter: 'drop-shadow(0 6px 8px rgba(0,0,0,0.45))',
       }}
-      className="ingredient-item"
     >
-      <img
-        src={ingredient.image}
-        alt={ingredient.name}
-        className="w-16 h-16 md:w-20 md:h-20 object-cover rounded-full border-2 border-white/20 shadow-lg"
-        loading="lazy"
-      />
-      {/* Indicador de quantidade se > 1 */}
-      {ingredient.quantity > 1 && (
-        <motion.span
-          initial={{ scale: 0, opacity: 0 }}
-          animate={{ scale: 1, opacity: 1 }}
-          className="absolute -top-2 -right-2 w-5 h-5 bg-neon-green text-background text-xs font-bold rounded-full flex items-center justify-center shadow-neon-green"
-        >
-          x{ingredient.quantity}
-        </motion.span>
-      )}
+      <ToppingImage item={item} />
     </motion.div>
   );
 }
 
 export function AcaiCup({ ingredients, size, className = '' }: AcaiCupProps) {
-  // Controla quais ingredientes são "novos" para animação
-  const [prevIngredients, setPrevIngredients] = React.useState<CupIngredient[]>([]);
-  
-  React.useEffect(() => {
-    setPrevIngredients(ingredients);
-  }, [ingredients.map(i => `${i.id}-${i.quantity}`).join(',')]);
-  
-  // Determina quais ingredientes são novos
-  const isNewIngredient = (ingredient: CupIngredient, index: number) => {
-    const prev = prevIngredients[index];
-    if (!prev) return true;
-    return prev.id !== ingredient.id || prev.quantity !== ingredient.quantity;
-  };
+  const visualItems: VisualItem[] = useMemo(() => {
+    const flat: VisualItem[] = [];
+    ingredients.forEach((ing) => {
+      const copies = Math.max(1, Math.min(ing.quantity || 1, 3));
+      for (let k = 0; k < copies; k++) {
+        if (flat.length >= 12) break;
+        flat.push({ ...ing, visualKey: `${ing.id}#${k}`, visualIndex: flat.length });
+      }
+    });
+    return flat;
+  }, [ingredients]);
 
-  const totalIngredients = ingredients.length;
-  
+  const totalCount = useMemo(
+    () => ingredients.reduce((sum, i) => sum + (i.quantity || 1), 0),
+    [ingredients]
+  );
+
+  const fillPct = getFillPercent(size, totalCount);
+
+  const positions = useMemo(() => {
+    const n = visualItems.length;
+    return visualItems.map((item, i) => {
+      let leftPct: number;
+      if (n === 1) leftPct = 50;
+      else {
+        const spread = 62;
+        leftPct = 50 + (i / (n - 1) - 0.5) * spread;
+        leftPct += ((hashString(item.visualKey) % 11) - 5) * 0.7;
+        leftPct = Math.max(22, Math.min(78, leftPct));
+      }
+      const jitter = ((hashString(item.visualKey + ':y') % 13) - 6) * 1.6;
+      const rotate = rotationFor(item.visualKey, item.rotation);
+      return { leftPct, jitter, rotate };
+    });
+  }, [visualItems]);
+
   return (
-    <div className={`relative w-full max-w-xs mx-auto ${className}`}>
-      {/* Container principal do copo */}
-      <div className="relative" style={{ aspectRatio: '1 / 1.6' }}>
-        {/* 1. Camada traseira - Sombra e reflexo traseiro do copo */}
-        <div className="absolute inset-0 z-0" aria-hidden="true">
-          <div className="absolute bottom-8 left-1/2 -translate-x-1/2 w-3/4 h-2 bg-black/30 rounded-full blur-xl" />
-          
-          {/* Silhueta do copo vazia (fundo) */}
-          <svg 
-            className="absolute bottom-0 left-1/2 -translate-x-1/2 w-full h-full text-surface-elevated/50" 
-            viewBox="0 0 200 320" 
-            preserveAspectRatio="none"
-            aria-hidden="true"
-          >
-            <defs>
-              <linearGradient id="cupGlass" x1="0%" y1="0%" x2="100%" y2="100%">
-                <stop offset="0%" stopColor="#1a1a2e" stopOpacity="0.15" />
-                <stop offset="50%" stopColor="#2d2d4a" stopOpacity="0.1" />
-                <stop offset="100%" stopColor="#1a1a2e" stopOpacity="0.15" />
-              </linearGradient>
-            </defs>
-            {/* Corpo do copo */}
-            <path
-              d="M40 300 Q30 300 30 280 L30 40 Q30 20 50 20 L150 20 Q170 20 170 40 L170 280 Q170 300 160 300 Z"
-              fill="url(#cupGlass)"
-              stroke="rgba(187,134,252,0.1)"
-              strokeWidth="1"
-            />
-            {/* Base do copo */}
-            <ellipse cx="100" cy="305" rx="55" ry="8" fill="rgba(26,26,46,0.2)" />
-          </svg>
-        </div>
-        
-        {/* 2. Camada interna - Ingredientes (preenchimento) */}
-        <div className="absolute bottom-16 left-1/2 -translate-x-1/2 w-[80%] h-[85%] z-10 overflow-hidden rounded-b-xl" style={{ borderRadius: '0 0 40px 40px' }}>
-          {/* Efeito de preenchimento gradual baseado na quantidade de ingredientes */}
+    <div className={`relative w-full max-w-[280px] mx-auto select-none ${className}`}>
+      <div className="relative mx-auto" style={{ width: 250, height: 400 }}>
+        <div
+          className="absolute left-1/2 -translate-x-1/2 bottom-2 h-4 w-3/4 rounded-full bg-black/50 blur-xl"
+          aria-hidden="true"
+        />
+
+        <div
+          className="absolute inset-0"
+          aria-hidden="true"
+          style={{
+            clipPath: CUP_CLIP,
+            background: 'rgba(255,255,255,0.045)',
+            boxShadow: '0 0 24px rgba(34,197,94,0.22), 0 0 48px rgba(139,92,246,0.22)',
+            filter: 'drop-shadow(0 0 14px rgba(34,197,94,0.28)) drop-shadow(0 0 26px rgba(139,92,246,0.22))',
+          }}
+        />
+
+        <div
+          className="absolute overflow-hidden"
+          style={{
+            left: 8,
+            right: 8,
+            top: 10,
+            bottom: 10,
+            clipPath: CUP_INNER_CLIP,
+            background: 'linear-gradient(to bottom, rgba(255,255,255,0.05), rgba(255,255,255,0.01) 30%, rgba(0,0,0,0.25))',
+          }}
+        >
           <AnimatePresence mode="popLayout">
-            {ingredients.map((ingredient, index) => (
-              <IngredientItem
-                key={`${ingredient.id}-${ingredient.quantity}-${index}`}
-                ingredient={ingredient}
-                index={index}
-                total={totalIngredients}
-                isNew={isNewIngredient(ingredient, index)}
-              />
-            ))}
+            {fillPct > 0 && (
+              <motion.div
+                key="acai-fill"
+                initial={{ height: '0%' }}
+                animate={{ height: `${fillPct}%` }}
+                transition={{ type: 'spring', stiffness: 90, damping: 20 }}
+                className="absolute bottom-0 left-0 right-0"
+                style={{ background: ACAI_GRADIENT }}
+                aria-hidden="true"
+              >
+                <div
+                  className="absolute -top-[11px] left-[4%] right-[4%]"
+                  style={{
+                    height: 22,
+                    borderRadius: '50%',
+                    background: 'radial-gradient(ellipse at 35% 30%, #7c2d9e 0%, #5b1a7a 35%, #4a1268 60%, #2e0854 100%)',
+                    boxShadow: 'inset 0 3px 6px rgba(255,255,255,0.22), 0 -2px 10px rgba(0,0,0,0.4)',
+                  }}
+                  aria-hidden="true"
+                />
+                <div
+                  className="absolute inset-0 opacity-40"
+                  style={{
+                    background:
+                      'radial-gradient(circle at 20% 70%, rgba(255,255,255,0.10) 0 6%, transparent 7%), radial-gradient(circle at 70% 55%, rgba(255,255,255,0.08) 0 5%, transparent 6%), radial-gradient(circle at 45% 85%, rgba(0,0,0,0.25) 0 8%, transparent 9%)',
+                  }}
+                  aria-hidden="true"
+                />
+              </motion.div>
+            )}
           </AnimatePresence>
-          
-          {/* Efeito de "líquido" de base no fundo */}
-          {ingredients.length > 0 && (
-            <motion.div
-              initial={{ height: 0, opacity: 0.3 }}
-              animate={{ 
-                height: `${Math.min(40 + ingredients.length * 15, 120)}px`, 
-                opacity: 0.6 
-              }}
-              transition={{ duration: 0.8, ease: [0.34, 1.56, 0.64, 1] }}
-              className="absolute bottom-0 left-0 right-0 rounded-b-xl"
-              style={{
-                background: 'linear-gradient(to top, rgba(113,34,134,0.6), rgba(34,197,94,0.2))',
-                borderRadius: '0 0 40px 40px',
-              }}
-              aria-hidden="true"
-            />
+
+          {visualItems.length > 0 && fillPct > 0 && (
+            <div className="absolute inset-0" style={{ zIndex: 15 }}>
+              <AnimatePresence mode="popLayout">
+                {visualItems.map((item, i) => {
+                  const surfaceTopPct = 100 - fillPct;
+                  const innerH = 380;
+                  const topPx = (surfaceTopPct / 100) * innerH - 26 + positions[i].jitter;
+                  return (
+                    <ToppingItem
+                      key={item.visualKey}
+                      item={item}
+                      leftPct={positions[i].leftPct}
+                      topPx={topPx}
+                      rotate={positions[i].rotate}
+                    />
+                  );
+                })}
+              </AnimatePresence>
+            </div>
+          )}
+
+          {visualItems.length === 0 && (
+            <div className="absolute inset-0 flex items-center justify-center pb-16 pointer-events-none">
+              <motion.div
+                animate={{ y: [0, -8, 0], opacity: [0.35, 0.7, 0.35] }}
+                transition={{ duration: 2.2, repeat: Infinity, ease: 'easeInOut' }}
+                className="text-7xl text-white/15"
+                aria-hidden="true"
+              >
+                🥤
+              </motion.div>
+            </div>
           )}
         </div>
-        
-        {/* 3. Camada frontal - Efeito vidro/glassmorphism */}
-        <svg 
-          className="absolute bottom-0 left-1/2 -translate-x-1/2 w-full h-full z-20 pointer-events-none" 
-          viewBox="0 0 200 320" 
+
+        <div
+          className="absolute pointer-events-none backdrop-blur-[2px]"
+          style={{ left: 8, right: 8, top: 10, bottom: 10, clipPath: CUP_INNER_CLIP, zIndex: 40 }}
+          aria-hidden="true"
+        >
+          <div
+            className="absolute inset-0"
+            style={{
+              background:
+                'linear-gradient(105deg, rgba(255,255,255,0.20) 0%, rgba(255,255,255,0.07) 12%, transparent 26%, transparent 72%, rgba(255,255,255,0.05) 88%, rgba(255,255,255,0.12) 100%)',
+            }}
+          />
+          <div
+            className="absolute top-[4%] bottom-[6%] left-[10%] w-[16px] rounded-full"
+            style={{
+              background: 'linear-gradient(to bottom, rgba(255,255,255,0.55), rgba(255,255,255,0.08) 60%, transparent)',
+              filter: 'blur(1px)',
+              opacity: 0.7,
+            }}
+          />
+          <div
+            className="absolute top-[8%] bottom-[10%] right-[13%] w-[7px] rounded-full bg-white/25 blur-[1px] opacity-50"
+          />
+        </div>
+
+        <svg
+          className="absolute inset-0 h-full w-full pointer-events-none"
+          viewBox="0 0 250 400"
           preserveAspectRatio="none"
+          style={{ zIndex: 50 }}
           aria-hidden="true"
         >
           <defs>
-            {/* Gradiente para reflexo de vidro */}
-            <linearGradient id="glassReflection" x1="0%" y1="0%" x2="100%" y2="0%">
-              <stop offset="0%" stopColor="rgba(255,255,255,0)" />
-              <stop offset="20%" stopColor="rgba(255,255,255,0.08)" />
-              <stop offset="40%" stopColor="rgba(255,255,255,0.12)" />
-              <stop offset="60%" stopColor="rgba(255,255,255,0.05)" />
-              <stop offset="100%" stopColor="rgba(255,255,255,0)" />
-            </linearGradient>
-            
-            {/* Gradiente para borda neon */}
-            <linearGradient id="neonRim" x1="0%" y1="0%" x2="100%" y2="0%">
-              <stop offset="0%" stopColor="rgba(187,134,252,0.3)" />
-              <stop offset="50%" stopColor="rgba(3,218,198,0.4)" />
-              <stop offset="100%" stopColor="rgba(187,134,252,0.3)" />
+            <linearGradient id="acai-cup-neon" x1="0%" y1="0%" x2="100%" y2="0%">
+              <stop offset="0%" stopColor="#22c55e" stopOpacity="0.9" />
+              <stop offset="50%" stopColor="#8b5cf6" stopOpacity="0.9" />
+              <stop offset="100%" stopColor="#22c55e" stopOpacity="0.9" />
             </linearGradient>
           </defs>
-          
-          {/* Reflexo lateral esquerdo (vidro) */}
           <path
-            d="M50 20 Q55 40 55 100 L55 280 Q55 300 45 300"
+            d="M5 2 L245 2 L214 398 L36 398 Z"
             fill="none"
-            stroke="url(#glassReflection)"
-            strokeWidth="8"
-            strokeLinecap="round"
-            opacity="0.6"
-          />
-          
-          {/* Reflexo lateral direito (vidro) */}
-          <path
-            d="M150 20 Q145 40 145 100 L145 280 Q145 300 155 300"
-            fill="none"
-            stroke="url(#glassReflection)"
-            strokeWidth="8"
-            strokeLinecap="round"
-            opacity="0.4"
-          />
-          
-          {/* Borda superior neon */}
-          <path
-            d="M50 20 L150 20"
-            fill="none"
-            stroke="url(#neonRim)"
+            stroke="url(#acai-cup-neon)"
             strokeWidth="3"
-            strokeLinecap="round"
-            filter="drop-shadow(0 0 8px rgba(187,134,252,0.6))"
+            strokeLinejoin="round"
+            opacity="0.85"
+            style={{ filter: 'drop-shadow(0 0 8px rgba(34,197,94,0.55)) drop-shadow(0 0 16px rgba(139,92,246,0.4))' }}
           />
-          
-          {/* Contorno do copo */}
           <path
-            d="M40 300 Q30 300 30 280 L30 40 Q30 20 50 20 L150 20 Q170 20 170 40 L170 280 Q170 300 160 300 Z"
-            fill="none"
-            stroke="rgba(255,255,255,0.08)"
-            strokeWidth="1.5"
-          />
-          
-          {/* Base do copo */}
-          <ellipse 
-            cx="100" 
-            cy="305" 
-            rx="55" 
-            ry="8" 
-            fill="none" 
-            stroke="rgba(255,255,255,0.1)" 
-            strokeWidth="1.5"
-          />
-          
-          {/* Reflexo na base */}
-          <ellipse 
-            cx="100" 
-            cy="302" 
-            rx="45" 
-            ry="4" 
-            fill="url(#glassReflection)" 
-            opacity="0.3"
+            d="M14 8 L30 390"
+            stroke="rgba(255,255,255,0.35)"
+            strokeWidth="5"
+            strokeLinecap="round"
+            opacity="0.5"
           />
         </svg>
-        
-        {/* Indicador de tamanho do copo */}
+
         {size && (
           <motion.div
-            initial={{ opacity: 0, y: -10 }}
+            initial={{ opacity: 0, y: -8 }}
             animate={{ opacity: 1, y: 0 }}
-            className="absolute top-3 left-1/2 -translate-x-1/2 z-30 px-3 py-1 bg-background/90 backdrop-blur rounded-full text-xs font-medium text-neon-green border border-neon-green/30 shadow-neon-green whitespace-nowrap"
+            className="absolute -top-2 left-1/2 -translate-x-1/2 z-[60] px-3 py-1 rounded-full text-xs font-medium whitespace-nowrap bg-[#0d0d0f]/90 backdrop-blur border border-[#22c55e]/40 text-[#22c55e]"
+            style={{ boxShadow: '0 0 14px rgba(34,197,94,0.35)' }}
             aria-label={`Tamanho: ${size}`}
           >
             {size}
           </motion.div>
         )}
-        
-        {/* Placeholder quando vazio */}
-        {ingredients.length === 0 && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            className="absolute inset-0 flex flex-col items-center justify-center z-5 pointer-events-none"
-            style={{ 
-              borderRadius: '0 0 40px 40px',
-              paddingBottom: '80px'
-            }}
-          >
-            <motion.div
-              animate={{ 
-                y: [0, -10, 0],
-                opacity: [0.4, 0.8, 0.4]
-              }}
-              transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
-              className="text-6xl md:text-8xl text-neutral-700 mb-2"
-            >
-              🥤
-            </motion.div>
-            <p className="text-neutral-500 text-sm font-medium text-center px-4">
-              Adicione ingredientes<br />para montar seu açaí
-            </p>
-          </motion.div>
-        )}
       </div>
-      
-      {/* Legenda de quantidade total */}
-      {ingredients.length > 0 && (
+
+      {totalCount > 0 && (
         <motion.div
-          initial={{ opacity: 0, y: 10 }}
+          initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
-          className="mt-4 text-center text-sm text-neutral-400"
+          className="mt-3 text-center text-sm text-neutral-400"
         >
-          {ingredients.reduce((sum, i) => sum + i.quantity, 0)} ingrediente{ingredients.reduce((sum, i) => sum + i.quantity, 0) !== 1 ? 's' : ''} no copo
+          {totalCount} {totalCount === 1 ? 'item no copo' : 'itens no copo'}
         </motion.div>
       )}
     </div>
